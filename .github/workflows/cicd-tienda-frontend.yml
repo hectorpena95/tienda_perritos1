@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  build:
+  build-and-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -25,14 +25,22 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Build Docker Image
+      - name: Build, Tag and Push Image
         run: |
-          docker build -t frontend .
-
-      - name: Tag Docker Image
-        run: |
+          docker build -t frontend ./frontend
           docker tag frontend:latest 536342473074.dkr.ecr.us-east-1.amazonaws.com/frontend:latest
-
-      - name: Push Docker Image
-        run: |
           docker push 536342473074.dkr.ecr.us-east-1.amazonaws.com/frontend:latest
+
+      - name: Deploy to EC2 via SSM
+        run: |
+          aws ssm send-command \
+            --instance-ids ${{ secrets.EC2_FRONTEND_INSTANCE_ID }} \
+            --document-name "AWS-RunShellScript" \
+            --comment "Actualizando contenedor Frontend" \
+            --parameters '{"commands":[
+              "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 536342473074.dkr.ecr.us-east-1.amazonaws.com",
+              "docker pull 536342473074.dkr.ecr.us-east-1.amazonaws.com/frontend:latest",
+              "docker stop frontend || true",
+              "docker rm frontend || true",
+              "docker run -d --name frontend -p 80:80 536342473074.dkr.ecr.us-east-1.amazonaws.com/frontend:latest"
+            ]}'
